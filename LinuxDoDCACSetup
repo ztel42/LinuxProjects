@@ -10,6 +10,7 @@ Testing CAC reader functionality
 Installing DoD PKI certificates
 Configuring Firefox for CAC authentication
 Testing access to DoD websites
+
 1️⃣ Install Smart Card Middleware and CAC Reader Support
 
 Linux uses middleware to communicate with CAC readers and smart cards. The most common and reliable package is OpenSC.
@@ -31,6 +32,7 @@ Enable the Smart Card Service
 Start and enable the smart card service:
 
 sudo systemctl enable pcscd --now
+
 2️⃣ Test CAC Reader Detection
 
 Before touching certificates or Firefox, confirm Linux can see the reader.
@@ -58,6 +60,7 @@ If you see your reader and card:
 Exit the scan utility with:
 
 Ctrl + C
+
 3️⃣ Download the DoD PKI Certificates
 
 The DoD distributes certificates as PKCS#7 bundles (.p7b).
