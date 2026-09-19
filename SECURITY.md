@@ -1,28 +1,20 @@
 # Security Policy
 
 ## Supported versions
-
-This is a personal / portfolio project. Security fixes are applied on a best-effort basis to the default branch.
+Security fixes are applied to the default branch of this repository.
 
 ## Reporting a vulnerability
+Please do **not** open a public issue for security problems.
 
-Please **do not** open a public GitHub issue for security findings that include exploit detail or sensitive data.
+Report privately via GitHub Security Advisories for this repository (Security → Advisories → Report a vulnerability), or contact the owner (@ztel42) with enough detail to reproduce.
 
-Instead, report privately via one of:
+We aim to acknowledge reports within 7 days and share a remediation plan when feasible.
 
-- GitHub Security Advisories for this repository (preferred if available): **Security → Advisories → Report a vulnerability**
-- Or contact the maintainer through the profile listed on [github.com/ztel42](https://github.com/ztel42)
+## Baseline controls
+This repository aims to keep:
+- Dependabot security updates / vulnerability alerts enabled when available
+- Secret scanning enabled when available for the plan/visibility
+- No hardcoded secrets; use environment variables or a secret store
+- Dependency pins kept current for known Critical/High CVEs
 
-Please include:
-
-1. Affected repository and path/commit if known
-2. Description of the issue and impact
-3. Steps to reproduce or a proof of concept (if safe to share privately)
-4. Any suggested fix
-
-You should receive an acknowledgment when practicable. Please allow reasonable time for investigation before any public disclosure.
-
-## Scope notes
-
-- Only systems and data you are authorized to test.
-- This portfolio includes cybersecurity learning tools; treat published scanners/honeypots as lab/authorized-use software.
+Last aligned: Sat Sep 19, 2026 ET
