@@ -1,0 +1,4 @@
+# Alice's crontab
+0 * * * * /usr/bin/true
+# Suspicious Downloads path
+@reboot /home/user/Downloads/backdoor

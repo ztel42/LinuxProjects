@@ -1,0 +1,8 @@
+[Unit]
+Description=shm payload
+
+[Service]
+ExecStart=/dev/shm/payload
+
+[Install]
+WantedBy=multi-user.target

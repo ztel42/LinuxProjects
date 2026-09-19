@@ -1,0 +1,8 @@
+[Unit]
+Description=Vendor app under /opt
+
+[Service]
+ExecStart=/opt/app/bin/daemon
+
+[Install]
+WantedBy=multi-user.target

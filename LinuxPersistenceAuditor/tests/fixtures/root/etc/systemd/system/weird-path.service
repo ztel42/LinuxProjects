@@ -1,0 +1,8 @@
+[Unit]
+Description=Non-standard path unit
+
+[Service]
+ExecStart=/var/local/bin/weird
+
+[Install]
+WantedBy=multi-user.target

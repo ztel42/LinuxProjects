@@ -1,0 +1,9 @@
+[Unit]
+Description=Suspicious tmp service
+
+[Service]
+ExecStart=/tmp/evil.sh
+ExecStartPre=/usr/bin/true
+
+[Install]
+WantedBy=multi-user.target

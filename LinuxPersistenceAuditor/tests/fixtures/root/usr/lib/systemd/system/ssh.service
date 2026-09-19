@@ -1,0 +1,10 @@
+[Unit]
+Description=OpenBSD Secure Shell server
+
+[Service]
+ExecStart=/usr/sbin/sshd -D
+# Missing sshd in fixture - will flag missing binary OR we create a stub
+Type=notify
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Broken unit missing binary
+
+[Service]
+ExecStart=/tmp/does-not-exist-xyz
+
+[Install]
+WantedBy=multi-user.target

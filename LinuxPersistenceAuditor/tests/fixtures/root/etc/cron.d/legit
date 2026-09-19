@@ -1,0 +1,2 @@
+# Package job
+0 2 * * * root /usr/bin/true
