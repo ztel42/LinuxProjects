@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import subprocess
@@ -10,6 +9,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from ..models import PersistenceEntry, SoftSkip
+from ..pathsafe import (
+    is_real_dir,
+    iter_real_files_recursive,
+    path_status,
+    read_text_nofollow,
+    resolve_under_root,
+)
 
 _EXEC_RE = re.compile(
     r"^(ExecStart(?:Pre|Post)?|ExecReload|ExecStop)\s*=\s*(.*)$",
@@ -19,17 +25,26 @@ _WANTED_BY_RE = re.compile(r"^WantedBy\s*=\s*(.*)$", re.IGNORECASE)
 _UNIT_SUFFIXES = (".service", ".socket", ".path", ".timer", ".mount", ".target")
 
 
-def _under_root(root: Optional[str], *parts: str) -> Path:
-    if root:
-        return Path(root).joinpath(*[p.lstrip("/") for p in parts])
-    return Path("/").joinpath(*[p.lstrip("/") for p in parts])
+def _under_root(root: Optional[str], *parts: str) -> Optional[Path]:
+    """Join parts under root, rejecting ``..`` escapes. None if the path leaves root."""
+    return resolve_under_root(root, *parts)
 
 
-def _read_text(path: Path, soft_skips: List[SoftSkip]) -> Optional[str]:
+def _read_text(
+    path: Optional[Path], soft_skips: List[SoftSkip], root: Optional[str]
+) -> Optional[str]:
+    if path is None:
+        return None
     try:
-        if not path.exists() or not path.is_file():
+        status = path_status(root, path)
+        if status in {"symlink", "escape"}:
+            soft_skips.append(
+                SoftSkip(source=str(path), reason="skipped symlink or path escape")
+            )
             return None
-        return path.read_text(encoding="utf-8", errors="replace")
+        if status != "file":
+            return None
+        return read_text_nofollow(path)
     except OSError as exc:
         soft_skips.append(SoftSkip(source=str(path), reason=f"unreadable: {exc}"))
         return None
@@ -75,15 +90,21 @@ def _first_exec_path(value: str) -> str:
     return tokens[0] if tokens else ""
 
 
-def _iter_unit_files(directory: Path, soft_skips: List[SoftSkip]) -> List[Path]:
-    if not directory.exists():
+def _iter_unit_files(
+    directory: Optional[Path], soft_skips: List[SoftSkip], root: Optional[str]
+) -> List[Path]:
+    if directory is None:
         return []
     try:
-        files: List[Path] = []
-        for p in directory.rglob("*"):
-            if p.is_file() and p.suffix in _UNIT_SUFFIXES:
-                files.append(p)
-        return sorted(files)
+        status = path_status(root, directory)
+        if status in {"symlink", "escape"}:
+            soft_skips.append(
+                SoftSkip(source=str(directory), reason="skipped symlink or path escape")
+            )
+            return []
+        if status != "dir":
+            return []
+        return iter_real_files_recursive(root, directory, _UNIT_SUFFIXES)
     except OSError as exc:
         soft_skips.append(SoftSkip(source=str(directory), reason=f"unreadable: {exc}"))
         return []
@@ -93,20 +114,25 @@ def _collect_unit_dirs(
     root: Optional[str], soft_skips: List[SoftSkip]
 ) -> List[PersistenceEntry]:
     entries: List[PersistenceEntry] = []
-    dirs = [
+    dirs: List[Path] = []
+    for candidate in (
         _under_root(root, "etc/systemd/system"),
         _under_root(root, "usr/lib/systemd/system"),
         _under_root(root, "lib/systemd/system"),
-    ]
+    ):
+        if candidate is not None:
+            dirs.append(candidate)
 
     # User systemd: live home or fixture homes
     if root:
         home_base = _under_root(root, "home")
-        if home_base.is_dir():
+        if home_base is not None and is_real_dir(root, home_base):
             try:
                 for user_home in home_base.iterdir():
+                    if user_home.is_symlink():
+                        continue
                     user_units = user_home / ".config" / "systemd" / "user"
-                    if user_units.is_dir():
+                    if is_real_dir(root, user_units):
                         dirs.append(user_units)
             except OSError as exc:
                 soft_skips.append(
@@ -114,7 +140,7 @@ def _collect_unit_dirs(
                 )
         # Also support root/.config/systemd/user in fixtures
         alt = _under_root(root, ".config/systemd/user")
-        if alt.is_dir():
+        if alt is not None and is_real_dir(root, alt):
             dirs.append(alt)
     else:
         user_units = Path.home() / ".config" / "systemd" / "user"
@@ -123,12 +149,13 @@ def _collect_unit_dirs(
 
     seen: set[str] = set()
     for d in dirs:
-        for path in _iter_unit_files(d, soft_skips):
-            key = str(path.resolve()) if path.exists() else str(path)
+        for path in _iter_unit_files(d, soft_skips, root):
+            # Do not resolve(): that follows symlinks and can escape --root.
+            key = str(path)
             if key in seen:
                 continue
             seen.add(key)
-            text = _read_text(path, soft_skips)
+            text = _read_text(path, soft_skips, root)
             if text is None:
                 continue
             parsed = _parse_unit_file(path, text)
