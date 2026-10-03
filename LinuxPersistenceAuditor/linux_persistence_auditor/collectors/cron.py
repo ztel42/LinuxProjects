@@ -2,24 +2,31 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from ..models import PersistenceEntry, SoftSkip
+from ..pathsafe import iter_real_files, path_status, read_text_nofollow, resolve_under_root
 
 
-def _under_root(root: str | None, *parts: str) -> Path:
-    if root:
-        return Path(root).joinpath(*[p.lstrip("/") for p in parts])
-    return Path("/").joinpath(*[p.lstrip("/") for p in parts])
+def _under_root(root: str | None, *parts: str) -> Optional[Path]:
+    """Join parts under root, rejecting ``..`` escapes. None if the path leaves root."""
+    return resolve_under_root(root, *parts)
 
 
-def _read_text(path: Path, soft_skips: List[SoftSkip]) -> str | None:
+def _read_text(path: Optional[Path], soft_skips: List[SoftSkip], root: str | None) -> str | None:
+    if path is None:
+        return None
     try:
-        if not path.exists():
+        status = path_status(root, path)
+        if status in {"symlink", "escape"}:
+            soft_skips.append(
+                SoftSkip(source=str(path), reason="skipped symlink or path escape")
+            )
             return None
-        return path.read_text(encoding="utf-8", errors="replace")
+        if status != "file":
+            return None
+        return read_text_nofollow(path)
     except OSError as exc:
         soft_skips.append(SoftSkip(source=str(path), reason=f"unreadable: {exc}"))
         return None
@@ -58,11 +65,21 @@ def _parse_crontab_lines(
         )
 
 
-def _iter_dir_files(directory: Path, soft_skips: List[SoftSkip]) -> List[Path]:
-    if not directory.exists():
+def _iter_dir_files(
+    directory: Optional[Path], soft_skips: List[SoftSkip], root: str | None
+) -> List[Path]:
+    if directory is None:
         return []
     try:
-        return sorted(p for p in directory.iterdir() if p.is_file())
+        status = path_status(root, directory)
+        if status in {"symlink", "escape"}:
+            soft_skips.append(
+                SoftSkip(source=str(directory), reason="skipped symlink or path escape")
+            )
+            return []
+        if status != "dir":
+            return []
+        return iter_real_files(root, directory)
     except OSError as exc:
         soft_skips.append(SoftSkip(source=str(directory), reason=f"unreadable: {exc}"))
         return []
@@ -75,25 +92,25 @@ def collect_cron(root: str | None = None) -> Tuple[List[PersistenceEntry], List[
 
     # /etc/crontab
     etc_crontab = _under_root(root, "etc/crontab")
-    text = _read_text(etc_crontab, soft_skips)
+    text = _read_text(etc_crontab, soft_skips, root)
     if text is not None:
         _parse_crontab_lines(etc_crontab, text, entries, kind="etc_crontab")
 
     # /etc/cron.d/*
-    for path in _iter_dir_files(_under_root(root, "etc/cron.d"), soft_skips):
-        text = _read_text(path, soft_skips)
+    for path in _iter_dir_files(_under_root(root, "etc/cron.d"), soft_skips, root):
+        text = _read_text(path, soft_skips, root)
         if text is not None:
             _parse_crontab_lines(path, text, entries, kind="cron.d")
 
     # Periodic dirs: daily/hourly/weekly/monthly — list scripts as entries
     for period in ("daily", "hourly", "weekly", "monthly"):
         period_dir = _under_root(root, f"etc/cron.{period}")
-        for path in _iter_dir_files(period_dir, soft_skips):
+        for path in _iter_dir_files(period_dir, soft_skips, root):
             # Skip .placeholder / disabled
             name = path.name
             if name.startswith(".") or name.endswith("~"):
                 continue
-            text = _read_text(path, soft_skips)
+            text = _read_text(path, soft_skips, root)
             detail = text.strip().splitlines()[0] if text and text.strip() else name
             # Prefer a short summary: first non-shebang/non-comment line if any
             body_preview = ""
@@ -115,8 +132,8 @@ def collect_cron(root: str | None = None) -> Tuple[List[PersistenceEntry], List[
     # User crontabs
     for spool in ("var/spool/cron/crontabs", "var/spool/cron/crons"):
         spool_dir = _under_root(root, spool)
-        for path in _iter_dir_files(spool_dir, soft_skips):
-            text = _read_text(path, soft_skips)
+        for path in _iter_dir_files(spool_dir, soft_skips, root):
+            text = _read_text(path, soft_skips, root)
             if text is not None:
                 _parse_crontab_lines(path, text, entries, kind="user_crontab")
 

@@ -104,6 +104,7 @@ LinuxPersistenceAuditor/
 ├── linux_persistence_auditor/
 │   ├── collectors/     # cron, systemd, timers
 │   ├── heuristics.py
+│   ├── pathsafe.py     # --root symlink / path-escape checks
 │   ├── report.py
 │   ├── cli.py
 │   └── __main__.py
@@ -112,3 +113,10 @@ LinuxPersistenceAuditor/
 ├── requirements.txt
 └── README.md
 ```
+
+
+---
+
+## Changelog
+
+- **Sat Oct 3, 2026 ET** — Hardened `--root` scans against symlink and path escapes. Candidate paths are resolved lexically under the given root; `..` and absolute paths that leave the root are rejected, and symlink files or directories are skipped instead of followed (reads use `O_NOFOLLOW`). Real files inside the root are still scanned.
