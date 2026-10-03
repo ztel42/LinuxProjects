@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence
 
 from .models import Finding, PersistenceEntry
+from .pathsafe import lexically_inside, path_status, resolve_under_root
 
 # Suspicious path prefixes / patterns for ExecStart binaries
 _SUSPICIOUS_PREFIXES = ("/tmp/", "/dev/shm/")
@@ -33,39 +34,57 @@ _STANDARD_PREFIXES = (
 )
 
 
-def _resolve_under_root(root: Optional[str], path: str) -> Path:
+def _resolve_under_root(root: Optional[str], path: str) -> Optional[Path]:
+    """Map an exec path under --root without following symlinks or ``..`` escapes.
+
+    Returns None when the path would leave the root or any component is a symlink,
+    so callers do not stat or read outside the fixture. Live scans (root is None)
+    keep the host path.
+    """
     if not path:
+        return None
+    if not root:
         return Path(path)
-    if root and path.startswith("/"):
-        return Path(root) / path.lstrip("/")
-    return Path(path)
+    resolved = resolve_under_root(root, path)
+    if resolved is None:
+        return None
+    if not lexically_inside(Path(root), resolved):
+        return None
+    status = path_status(root, resolved)
+    if status in {"symlink", "escape"}:
+        return None
+    return resolved
 
 
-def _is_world_writable(path: Path) -> bool:
+def _is_world_writable(path: Path, *, boundary: Optional[Path] = None) -> bool:
+    """World-writable check. With ``boundary``, never stat above it or follow symlinks."""
     try:
-        if not path.exists():
-            # Check parent dirs up the chain for world-writable
-            cur = path
-            while True:
-                parent = cur.parent
-                if parent == cur:
-                    return False
-                if parent.exists():
-                    mode = parent.stat().st_mode
-                    return bool(mode & stat.S_IWOTH)
-                cur = parent
-            return False
-        mode = path.stat().st_mode
-        if mode & stat.S_IWOTH:
-            return True
-        # Also flag if any parent is world-writable (common for /tmp)
-        for parent in path.parents:
+        cur = path
+        while True:
+            if boundary is not None and not lexically_inside(boundary, cur):
+                return False
             try:
-                if parent.stat().st_mode & stat.S_IWOTH:
-                    return True
+                if cur.is_symlink():
+                    return False
             except OSError:
-                break
-        return False
+                return False
+            try:
+                exists = cur.exists()
+            except OSError:
+                exists = False
+            if exists:
+                try:
+                    mode = cur.lstat().st_mode if boundary is not None else cur.stat().st_mode
+                except OSError:
+                    return False
+                if mode & stat.S_IWOTH:
+                    return True
+                if boundary is not None and os.path.abspath(cur) == os.path.abspath(boundary):
+                    return False
+            parent = cur.parent
+            if parent == cur:
+                return False
+            cur = parent
     except OSError:
         return False
 
@@ -167,7 +186,17 @@ def _analyze_systemd(
             )
 
         resolved = _resolve_under_root(root, exec_path)
-        if exec_path.startswith("/") and not resolved.exists():
+        # Escapes and symlinks yield None so we never stat outside --root.
+        boundary = Path(root) if root else None
+        if root:
+            missing = (
+                exec_path.startswith("/")
+                and resolved is not None
+                and path_status(root, resolved) == "missing"
+            )
+        else:
+            missing = bool(exec_path.startswith("/") and resolved is not None and not resolved.exists())
+        if missing:
             out.append(
                 Finding(
                     severity="medium",
@@ -179,7 +208,9 @@ def _analyze_systemd(
                 )
             )
 
-        if exec_path.startswith("/") and _is_world_writable(resolved):
+        if exec_path.startswith("/") and resolved is not None and _is_world_writable(
+            resolved, boundary=boundary
+        ):
             out.append(
                 Finding(
                     severity="high",
