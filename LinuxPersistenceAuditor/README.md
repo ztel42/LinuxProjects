@@ -119,4 +119,6 @@ LinuxPersistenceAuditor/
 
 ## Changelog
 
+- **Sun Nov 1, 2026 ET** — Raised the test dependency floor to `pytest>=9.0.3` (older pytest has a known flaw). Tests pass (6).
+
 - **Sat Oct 3, 2026 ET** — Hardened `--root` scans against symlink and path escapes. Candidate paths are resolved lexically under the given root; `..` and absolute paths that leave the root are rejected, and symlink files or directories are skipped instead of followed (reads use `O_NOFOLLOW`). Real files inside the root are still scanned.
